@@ -16,9 +16,12 @@
 - **运行总览**：电站规模、今日/本月/本年发电量、30 天发电趋势、设备状态分布、告警级别分布、待办事项
 - **电站管理**：电站卡片总览 → 电站详情（日发电/PR 曲线、今日逐时出力、设备清单、本站告警）
 - **异常告警**：级别（提示/一般/严重/紧急）× 状态（未处理/处理中/已处理）流转闭环
+- **告警派单**：告警行一键生成消缺记录/巡检工单，电站、设备、告警内容自动带入；
+  告警页实时显示"已派单 XQ…（消缺中）"，消缺/工单列表可跳回来源告警；
+  工单取消时告警回到未处理（不自动闭环），闭环时可补记处置措施，全链路留痕
 - **巡检工单**：定期/专项/故障巡检，新建 → 执行 → 完成（填写结果）/取消
 - **清洗计划**：方阵级清洗计划排程与执行跟踪
-- **消缺记录**：缺陷登记（关联设备）→ 消缺中 → 已消缺闭环
+- **消缺记录**：缺陷登记（关联设备）→ 消缺中 → 已消缺闭环，支持作废
 
 内置 6 座样例电站（青海/宁夏/山东/江苏/浙江/广东）、74 台设备、120 天发电数据及配套告警/工单/清洗/消缺数据。
 
@@ -66,13 +69,14 @@ python manage.py migrate && python manage.py seed
 | GET | `/api/stations/{id}/power/?days=30` | 日发电序列 |
 | GET | `/api/stations/{id}/power_hourly/` | 今日逐时出力曲线 |
 | GET | `/api/stations/{id}/devices/` | 电站设备清单 |
-| GET/POST/PATCH | `/api/alarms/` | 告警查询/创建（支持 station/level/status 过滤） |
-| POST | `/api/alarms/{id}/start/` `/resolve/` | 告警处理流转 |
-| GET/POST | `/api/inspections/` | 巡检工单 |
-| POST | `/api/inspections/{id}/start/` `/complete/` `/cancel/` | 工单流转 |
+| GET/POST/PATCH | `/api/alarms/` | 告警查询/创建（支持 station/level/status/alarm_id 过滤） |
+| POST | `/api/alarms/{id}/start/` `/resolve/` | 告警处理流转（resolve 可带 note 处置措施） |
+| POST | `/api/alarms/{id}/dispatch/` | 告警派单（type=defect/inspection，自动带入电站/设备/内容） |
+| GET/POST | `/api/inspections/` | 巡检工单（支持 alarm 过滤查来源） |
+| POST | `/api/inspections/{id}/start/` `/complete/` `/cancel/` | 工单流转（cancel 时来源告警回到未处理） |
 | GET/POST | `/api/cleanings/` | 清洗计划（流转同上） |
-| GET/POST | `/api/defects/` | 消缺记录 |
-| POST | `/api/defects/{id}/start/` `/resolve/` | 消缺流转 |
+| GET/POST | `/api/defects/` | 消缺记录（支持 alarm 过滤查来源） |
+| POST | `/api/defects/{id}/start/` `/resolve/` `/cancel/` | 消缺流转（cancel 时来源告警回到未处理） |
 
 ## 目录结构
 

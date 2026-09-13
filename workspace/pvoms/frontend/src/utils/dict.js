@@ -55,6 +55,7 @@ export const defectStatus = {
   open: { label: '待消缺', type: 'danger' },
   processing: { label: '消缺中', type: 'warning' },
   resolved: { label: '已消缺', type: 'success' },
+  cancelled: { label: '已作废', type: 'info' },
 }
 
 /** 发电量格式化：>=1万 显示为 万kWh */

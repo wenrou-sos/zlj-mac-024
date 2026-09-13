@@ -26,6 +26,24 @@ def _filtered(qs, request, mapping):
     return qs
 
 
+def _gen_code(prefix):
+    """生成全局唯一业务编号：前缀+日期+随机序号"""
+    today = date.today()
+    for _ in range(10):
+        code = f"{prefix}{today:%Y%m%d}-{random.randint(1000, 9999)}"
+        if not (DefectRecord.objects.filter(code=code).exists()
+                or InspectionOrder.objects.filter(code=code).exists()):
+            return code
+    return f"{prefix}{today:%Y%m%d}-{timezone.now():%H%M%S}"
+
+
+def _reset_alarm_to_open(alarm):
+    """工单取消时：来源告警回到未处理，由值班人员重新判断（不自动闭环）"""
+    if alarm and alarm.status != "resolved":
+        alarm.status = "open"
+        alarm.save(update_fields=["status"])
+
+
 def _today_energy_subquery():
     """当日发电量子查询（避免与 Count 注解混用导致 JOIN 交叉相乘）"""
     return Coalesce(
@@ -94,9 +112,10 @@ class AlarmViewSet(viewsets.ModelViewSet):
     serializer_class = AlarmSerializer
 
     def get_queryset(self):
-        qs = Alarm.objects.select_related("station", "device")
+        qs = (Alarm.objects.select_related("station", "device")
+              .prefetch_related("dispatched_defects", "dispatched_inspections"))
         return _filtered(qs, self.request, {"station": "station_id", "status": "status",
-                                            "level": "level"})
+                                            "level": "level", "alarm_id": "id"})
 
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
@@ -109,22 +128,80 @@ class AlarmViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def resolve(self, request, pk=None):
-        """处理完成 -> 已处理"""
+        """处理完成 -> 已处理，可补记处置措施"""
         alarm = self.get_object()
         alarm.status = "resolved"
         alarm.handler = request.data.get("handler", alarm.handler)
+        alarm.handle_note = request.data.get("note", alarm.handle_note)
         alarm.handled_at = timezone.now()
-        alarm.save(update_fields=["status", "handler", "handled_at"])
+        alarm.save(update_fields=["status", "handler", "handle_note", "handled_at"])
         return Response(AlarmSerializer(alarm).data)
+
+    @action(detail=True, methods=["post"], url_path="dispatch")
+    def dispatch_order(self, request, pk=None):
+        """告警派单：生成消缺记录(type=defect)或巡检工单(type=inspection)
+
+        注意：方法名不能叫 dispatch，否则会覆盖 View.dispatch() 请求分发入口。
+        """
+        alarm = self.get_object()
+
+        if alarm.status == "resolved":
+            return Response({"detail": "该告警已闭环，不允许派单"}, status=400)
+        active = (alarm.dispatched_defects.exclude(status="cancelled").first()
+                  or alarm.dispatched_inspections.exclude(status="cancelled").first())
+        if active:
+            return Response(
+                {"detail": f"该告警已派单（{active.code}），不能重复派单"}, status=400)
+
+        dtype = request.data.get("type")
+        if dtype == "defect":
+            level_map = {"info": "minor", "minor": "minor",
+                         "major": "major", "critical": "critical"}
+            order = DefectRecord.objects.create(
+                source_alarm=alarm,
+                station=alarm.station,
+                device=alarm.device,
+                code=_gen_code("XQ"),
+                description=f"【告警派单】{alarm.title}\n{alarm.message}".strip(),
+                level=request.data.get("level") or level_map.get(alarm.level, "minor"),
+                reporter=request.data.get("reporter") or alarm.handler or "值班员",
+                found_at=date.today(),
+            )
+            serializer = DefectRecordSerializer(order)
+        elif dtype == "inspection":
+            assignee = request.data.get("assignee")
+            if not assignee:
+                return Response({"detail": "生成巡检工单需指定执行人"}, status=400)
+            order = InspectionOrder.objects.create(
+                source_alarm=alarm,
+                station=alarm.station,
+                code=_gen_code("XJ"),
+                title=f"【告警派单】{alarm.title}",
+                order_type="fault",
+                assignee=assignee,
+                plan_date=request.data.get("plan_date") or date.today(),
+            )
+            serializer = InspectionOrderSerializer(order)
+        else:
+            return Response({"detail": "type 必须为 defect（消缺记录）或 inspection（巡检工单）"},
+                            status=400)
+
+        # 派单后告警进入处理中，等待工单闭环后由值班人员确认闭环
+        alarm.status = "processing"
+        alarm.save(update_fields=["status"])
+        # 重新查询，避免 get_object() 的 prefetch 缓存导致 dispatch_info 为空
+        alarm = Alarm.objects.get(pk=alarm.pk)
+        return Response({"alarm": AlarmSerializer(alarm).data, "order": serializer.data},
+                        status=201)
 
 
 class InspectionOrderViewSet(viewsets.ModelViewSet):
     serializer_class = InspectionOrderSerializer
 
     def get_queryset(self):
-        qs = InspectionOrder.objects.select_related("station")
+        qs = InspectionOrder.objects.select_related("station", "source_alarm")
         return _filtered(qs, self.request, {"station": "station_id", "status": "status",
-                                            "type": "order_type"})
+                                            "type": "order_type", "alarm": "source_alarm"})
 
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
@@ -145,8 +222,11 @@ class InspectionOrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         order = self.get_object()
+        if order.status == "done":
+            return Response({"detail": "已完成的工单不能取消"}, status=400)
         order.status = "cancelled"
         order.save(update_fields=["status"])
+        _reset_alarm_to_open(order.source_alarm)
         return Response(InspectionOrderSerializer(order).data)
 
 
@@ -185,9 +265,9 @@ class DefectRecordViewSet(viewsets.ModelViewSet):
     serializer_class = DefectRecordSerializer
 
     def get_queryset(self):
-        qs = DefectRecord.objects.select_related("station", "device")
+        qs = DefectRecord.objects.select_related("station", "device", "source_alarm")
         return _filtered(qs, self.request, {"station": "station_id", "status": "status",
-                                            "level": "level"})
+                                            "level": "level", "alarm": "source_alarm"})
 
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
@@ -205,6 +285,17 @@ class DefectRecordViewSet(viewsets.ModelViewSet):
         defect.solution = request.data.get("solution", defect.solution)
         defect.resolved_at = timezone.now()
         defect.save(update_fields=["status", "handler", "solution", "resolved_at"])
+        return Response(DefectRecordSerializer(defect).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        """作废消缺记录：来源告警回到未处理"""
+        defect = self.get_object()
+        if defect.status == "resolved":
+            return Response({"detail": "已消缺的记录不能作废"}, status=400)
+        defect.status = "cancelled"
+        defect.save(update_fields=["status"])
+        _reset_alarm_to_open(defect.source_alarm)
         return Response(DefectRecordSerializer(defect).data)
 
 

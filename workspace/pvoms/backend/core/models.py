@@ -109,6 +109,7 @@ class Alarm(models.Model):
     message = models.TextField("告警详情", blank=True, default="")
     status = models.CharField("处理状态", max_length=20, choices=STATUS_CHOICES, default="open")
     handler = models.CharField("处理人", max_length=30, blank=True, default="")
+    handle_note = models.TextField("处置措施", blank=True, default="")
     created_at = models.DateTimeField("告警时间", auto_now_add=True)
     handled_at = models.DateTimeField("处理时间", null=True, blank=True)
 
@@ -137,6 +138,9 @@ class InspectionOrder(models.Model):
     ]
 
     station = models.ForeignKey(Station, related_name="inspections", on_delete=models.CASCADE, verbose_name="电站")
+    source_alarm = models.ForeignKey(Alarm, related_name="dispatched_inspections",
+                                     on_delete=models.SET_NULL, null=True, blank=True,
+                                     verbose_name="来源告警")
     code = models.CharField("工单编号", max_length=30, unique=True)
     title = models.CharField("工单标题", max_length=120)
     order_type = models.CharField("巡检类型", max_length=20, choices=TYPE_CHOICES, default="regular")
@@ -197,9 +201,13 @@ class DefectRecord(models.Model):
         ("open", "待消缺"),
         ("processing", "消缺中"),
         ("resolved", "已消缺"),
+        ("cancelled", "已作废"),
     ]
 
     station = models.ForeignKey(Station, related_name="defects", on_delete=models.CASCADE, verbose_name="电站")
+    source_alarm = models.ForeignKey(Alarm, related_name="dispatched_defects",
+                                     on_delete=models.SET_NULL, null=True, blank=True,
+                                     verbose_name="来源告警")
     device = models.ForeignKey(Device, related_name="defects", on_delete=models.SET_NULL,
                                null=True, blank=True, verbose_name="关联设备")
     code = models.CharField("缺陷编号", max_length=30, unique=True)

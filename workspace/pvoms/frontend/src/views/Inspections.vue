@@ -1,5 +1,8 @@
 <template>
   <el-card shadow="never">
+    <el-alert v-if="filters.alarm" type="info" class="filter-banner" show-icon
+              :title="`正在查看告警 #${filters.alarm} 关联的巡检工单`"
+              @close="clearAlarmFilter" />
     <div class="filter-bar">
       <el-select v-model="filters.station" placeholder="全部电站" clearable style="width: 200px" @change="load">
         <el-option v-for="s in stations" :key="s.id" :label="s.name" :value="s.id" />
@@ -12,6 +15,15 @@
 
     <el-table :data="rows" v-loading="loading" stripe>
       <el-table-column prop="code" label="工单编号" width="160" />
+      <el-table-column label="来源告警" width="100">
+        <template #default="{ row }">
+          <el-link v-if="row.source_alarm" type="primary"
+                   @click="$router.push(`/alarms?alarm_id=${row.source_alarm}`)">
+            告警#{{ row.source_alarm }}
+          </el-link>
+          <span v-else class="no-source">-</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
       <el-table-column prop="station_name" label="电站" width="160" show-overflow-tooltip />
       <el-table-column label="类型" width="100">
@@ -72,17 +84,21 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import http from '../api'
 import { orderStatus, orderType } from '../utils/dict'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const rows = ref([])
 const stations = ref([])
 const dialog = ref(false)
-const filters = reactive({ station: null, status: null })
+const filters = reactive({ station: null, status: null, alarm: null })
 const form = reactive({ station: null, title: '', order_type: 'regular', assignee: '', plan_date: null })
 
 onMounted(async () => {
+  if (route.query.alarm) filters.alarm = route.query.alarm
   try {
     stations.value = await http.get('/stations/')
   } catch {
@@ -97,12 +113,19 @@ async function load() {
     const params = new URLSearchParams()
     if (filters.station) params.set('station', filters.station)
     if (filters.status) params.set('status', filters.status)
+    if (filters.alarm) params.set('alarm', filters.alarm)
     rows.value = await http.get(`/inspections/?${params}`)
   } catch {
     /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
+}
+
+function clearAlarmFilter() {
+  filters.alarm = null
+  router.replace({ query: {} })
+  load()
 }
 
 async function create() {
@@ -124,11 +147,20 @@ async function create() {
 
 async function act(row, action) {
   try {
+    if (action === 'cancel') {
+      await ElMessageBox.confirm(
+        row.source_alarm
+          ? `取消后来源告警 #${row.source_alarm} 将回到"未处理"状态，确认取消 ${row.code}？`
+          : `确认取消 ${row.code}？`,
+        '取消工单',
+        { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '再想想' }
+      )
+    }
     await http.post(`/inspections/${row.id}/${action}/`)
     ElMessage.success('操作成功')
     load()
   } catch {
-    /* 拦截器已统一提示 */
+    /* 用户取消或请求失败（拦截器已提示） */
   }
 }
 
@@ -148,5 +180,7 @@ async function complete(row) {
 
 <style scoped>
 .filter-bar { display: flex; gap: 12px; margin-bottom: 16px; }
+.filter-banner { margin-bottom: 14px; }
 .done-text { color: #909399; }
+.no-source { color: #909399; font-size: 12px; }
 </style>

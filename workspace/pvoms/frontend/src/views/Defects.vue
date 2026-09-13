@@ -1,5 +1,8 @@
 <template>
   <el-card shadow="never">
+    <el-alert v-if="filters.alarm" type="info" class="filter-banner" show-icon
+              :title="`正在查看告警 #${filters.alarm} 关联的消缺记录`"
+              @close="clearAlarmFilter" />
     <div class="filter-bar">
       <el-select v-model="filters.station" placeholder="全部电站" clearable style="width: 200px" @change="load">
         <el-option v-for="s in stations" :key="s.id" :label="s.name" :value="s.id" />
@@ -15,6 +18,15 @@
 
     <el-table :data="rows" v-loading="loading" stripe>
       <el-table-column prop="code" label="缺陷编号" width="160" />
+      <el-table-column label="来源告警" width="100">
+        <template #default="{ row }">
+          <el-link v-if="row.source_alarm" type="primary"
+                   @click="$router.push(`/alarms?alarm_id=${row.source_alarm}`)">
+            告警#{{ row.source_alarm }}
+          </el-link>
+          <span v-else class="no-source">-</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="station_name" label="电站" width="160" show-overflow-tooltip />
       <el-table-column prop="description" label="缺陷描述" min-width="220" show-overflow-tooltip />
       <el-table-column prop="device_name" label="关联设备" width="120">
@@ -38,11 +50,13 @@
       <el-table-column prop="solution" label="处理措施" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">{{ row.solution || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button v-if="row.status === 'open'" type="warning" size="small" link @click="start(row)">开始消缺</el-button>
-          <el-button v-if="row.status !== 'resolved'" type="success" size="small" link @click="resolve(row)">完成消缺</el-button>
+          <el-button v-if="['open', 'processing'].includes(row.status)" type="success" size="small" link @click="resolve(row)">完成消缺</el-button>
+          <el-button v-if="['open', 'processing'].includes(row.status)" type="info" size="small" link @click="cancel(row)">作废</el-button>
           <span v-if="row.status === 'resolved'" class="done-text">已闭环</span>
+          <span v-if="row.status === 'cancelled'" class="cancelled-text">已作废</span>
         </template>
       </el-table-column>
     </el-table>
@@ -85,18 +99,22 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import http from '../api'
 import { defectLevel, defectStatus } from '../utils/dict'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const rows = ref([])
 const stations = ref([])
 const devices = ref([])
 const dialog = ref(false)
-const filters = reactive({ station: null, level: null, status: null })
+const filters = reactive({ station: null, level: null, status: null, alarm: null })
 const form = reactive({ station: null, device: null, level: 'minor', description: '', reporter: '', found_at: null })
 
 onMounted(async () => {
+  if (route.query.alarm) filters.alarm = route.query.alarm
   try {
     stations.value = await http.get('/stations/')
   } catch {
@@ -112,12 +130,19 @@ async function load() {
     if (filters.station) params.set('station', filters.station)
     if (filters.level) params.set('level', filters.level)
     if (filters.status) params.set('status', filters.status)
+    if (filters.alarm) params.set('alarm', filters.alarm)
     rows.value = await http.get(`/defects/?${params}`)
   } catch {
     /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
+}
+
+function clearAlarmFilter() {
+  filters.alarm = null
+  router.replace({ query: {} })
+  load()
 }
 
 function openDialog() {
@@ -176,9 +201,28 @@ async function resolve(row) {
     /* 用户取消或请求失败（拦截器已提示） */
   }
 }
+
+async function cancel(row) {
+  try {
+    await ElMessageBox.confirm(
+      row.source_alarm
+        ? `作废后来源告警 #${row.source_alarm} 将回到"未处理"状态，确认作废 ${row.code}？`
+        : `确认作废 ${row.code}？`,
+      '作废消缺记录',
+      { type: 'warning', confirmButtonText: '确认作废', cancelButtonText: '再想想' }
+    )
+    await http.post(`/defects/${row.id}/cancel/`)
+    ElMessage.success('已作废')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
+}
 </script>
 
 <style scoped>
 .filter-bar { display: flex; gap: 12px; margin-bottom: 16px; }
+.filter-banner { margin-bottom: 14px; }
 .done-text { color: #67c23a; font-size: 12px; }
+.cancelled-text, .no-source { color: #909399; font-size: 12px; }
 </style>
