@@ -11,7 +11,9 @@ from pathlib import Path
 import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent          # backend/
-FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"      # frontend/dist
+# 前端构建产物目录，可用环境变量覆盖（默认仓库布局 backend/ 与 frontend/ 同级）
+FRONTEND_DIST = Path(os.environ.get(
+    "FRONTEND_DIST", BASE_DIR.parent / "frontend" / "dist"))
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "pvoms-dev-secret-key-change-in-prod")
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"

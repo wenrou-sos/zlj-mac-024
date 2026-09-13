@@ -105,6 +105,8 @@ onMounted(async () => {
     devices.value = d
     alarms.value = a
     await loadPower()
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }

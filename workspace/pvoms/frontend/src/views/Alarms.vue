@@ -57,7 +57,11 @@ const stations = ref([])
 const filters = reactive({ station: null, level: null, status: null })
 
 onMounted(async () => {
-  stations.value = await http.get('/stations/')
+  try {
+    stations.value = await http.get('/stations/')
+  } catch {
+    /* 拦截器已统一提示 */
+  }
   await load()
 })
 
@@ -69,27 +73,37 @@ async function load() {
     if (filters.level) params.set('level', filters.level)
     if (filters.status) params.set('status', filters.status)
     rows.value = await http.get(`/alarms/?${params}`)
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
 }
 
 async function start(row) {
-  const { value } = await ElMessageBox.prompt('请输入处理人姓名', '开始处理', {
-    inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '处理人不能为空',
-  })
-  await http.post(`/alarms/${row.id}/start/`, { handler: value })
-  ElMessage.success('已开始处理')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('请输入处理人姓名', '开始处理', {
+      inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '处理人不能为空',
+    })
+    await http.post(`/alarms/${row.id}/start/`, { handler: value })
+    ElMessage.success('已开始处理')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 
 async function resolve(row) {
-  const { value } = await ElMessageBox.prompt('确认告警已处理完成，请输入处理人', '处理完成', {
-    inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '处理人不能为空',
-  })
-  await http.post(`/alarms/${row.id}/resolve/`, { handler: value })
-  ElMessage.success('告警已闭环')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('确认告警已处理完成，请输入处理人', '处理完成', {
+      inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '处理人不能为空',
+    })
+    await http.post(`/alarms/${row.id}/resolve/`, { handler: value })
+    ElMessage.success('告警已闭环')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 </script>
 

@@ -49,6 +49,8 @@ onMounted(async () => {
   loading.value = true
   try {
     stations.value = await http.get('/stations/')
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }

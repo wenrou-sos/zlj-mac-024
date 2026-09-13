@@ -97,7 +97,11 @@ const filters = reactive({ station: null, level: null, status: null })
 const form = reactive({ station: null, device: null, level: 'minor', description: '', reporter: '', found_at: null })
 
 onMounted(async () => {
-  stations.value = await http.get('/stations/')
+  try {
+    stations.value = await http.get('/stations/')
+  } catch {
+    /* 拦截器已统一提示 */
+  }
   await load()
 })
 
@@ -109,6 +113,8 @@ async function load() {
     if (filters.level) params.set('level', filters.level)
     if (filters.status) params.set('status', filters.status)
     rows.value = await http.get(`/defects/?${params}`)
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
@@ -121,7 +127,11 @@ function openDialog() {
 
 async function loadDevices(stationId) {
   form.device = null
-  devices.value = stationId ? await http.get(`/devices/?station=${stationId}`) : []
+  try {
+    devices.value = stationId ? await http.get(`/devices/?station=${stationId}`) : []
+  } catch {
+    devices.value = []
+  }
 }
 
 async function create() {
@@ -129,30 +139,42 @@ async function create() {
     ElMessage.warning('请填写完整信息')
     return
   }
-  const code = `XQ${form.found_at.replaceAll('-', '')}-${String(Math.floor(Math.random() * 900) + 100)}`
-  await http.post('/defects/', { ...form, code })
-  ElMessage.success('缺陷已登记')
-  dialog.value = false
-  Object.assign(form, { station: null, device: null, level: 'minor', description: '', reporter: '', found_at: null })
-  load()
+  try {
+    const code = `XQ${form.found_at.replaceAll('-', '')}-${String(Date.now()).slice(-6)}`
+    await http.post('/defects/', { ...form, code })
+    ElMessage.success('缺陷已登记')
+    dialog.value = false
+    Object.assign(form, { station: null, device: null, level: 'minor', description: '', reporter: '', found_at: null })
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  }
 }
 
 async function start(row) {
-  const { value } = await ElMessageBox.prompt('请输入消缺负责人', '开始消缺', {
-    inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '负责人不能为空',
-  })
-  await http.post(`/defects/${row.id}/start/`, { handler: value })
-  ElMessage.success('已开始消缺')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('请输入消缺负责人', '开始消缺', {
+      inputValue: row.handler || '', inputPattern: /\S+/, inputErrorMessage: '负责人不能为空',
+    })
+    await http.post(`/defects/${row.id}/start/`, { handler: value })
+    ElMessage.success('已开始消缺')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 
 async function resolve(row) {
-  const { value } = await ElMessageBox.prompt('请填写处理措施', '完成消缺', {
-    inputValue: '已处理完毕，设备恢复正常运行。', inputPattern: /\S+/, inputErrorMessage: '处理措施不能为空',
-  })
-  await http.post(`/defects/${row.id}/resolve/`, { solution: value, handler: row.handler || '运维班' })
-  ElMessage.success('缺陷已闭环')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('请填写处理措施', '完成消缺', {
+      inputValue: '已处理完毕，设备恢复正常运行。', inputPattern: /\S+/, inputErrorMessage: '处理措施不能为空',
+    })
+    await http.post(`/defects/${row.id}/resolve/`, { solution: value, handler: row.handler || '运维班' })
+    ElMessage.success('缺陷已闭环')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 </script>
 

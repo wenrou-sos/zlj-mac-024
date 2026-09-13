@@ -39,6 +39,8 @@ npm run build                  # 方式一：构建后由 Django 托管，访问
 npm run dev                    # 方式二：开发热更新，访问 :5173（已配置 /api 代理）
 ```
 
+> 提示：在执行 `npm run build` 之前访问 :8000，会看到"前端未构建"引导页（并非报错），构建完成后刷新即可。
+
 ## Docker（PostgreSQL 一键部署）
 
 ```bash

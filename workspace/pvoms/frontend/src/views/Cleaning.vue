@@ -79,7 +79,11 @@ const filters = reactive({ station: null, status: null })
 const form = reactive({ station: null, area: '', plan_date: null, executor: '', note: '' })
 
 onMounted(async () => {
-  stations.value = await http.get('/stations/')
+  try {
+    stations.value = await http.get('/stations/')
+  } catch {
+    /* 拦截器已统一提示 */
+  }
   await load()
 })
 
@@ -90,6 +94,8 @@ async function load() {
     if (filters.station) params.set('station', filters.station)
     if (filters.status) params.set('status', filters.status)
     rows.value = await http.get(`/cleanings/?${params}`)
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
@@ -100,27 +106,39 @@ async function create() {
     ElMessage.warning('请填写完整信息')
     return
   }
-  const code = `QX${form.plan_date.replaceAll('-', '')}-${String(Math.floor(Math.random() * 900) + 100)}`
-  await http.post('/cleanings/', { ...form, code })
-  ElMessage.success('清洗计划已创建')
-  dialog.value = false
-  Object.assign(form, { station: null, area: '', plan_date: null, executor: '', note: '' })
-  load()
+  try {
+    const code = `QX${form.plan_date.replaceAll('-', '')}-${String(Date.now()).slice(-6)}`
+    await http.post('/cleanings/', { ...form, code })
+    ElMessage.success('清洗计划已创建')
+    dialog.value = false
+    Object.assign(form, { station: null, area: '', plan_date: null, executor: '', note: '' })
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  }
 }
 
 async function act(row, action) {
-  await http.post(`/cleanings/${row.id}/${action}/`)
-  ElMessage.success('操作成功')
-  load()
+  try {
+    await http.post(`/cleanings/${row.id}/${action}/`)
+    ElMessage.success('操作成功')
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  }
 }
 
 async function complete(row) {
-  const { value } = await ElMessageBox.prompt('请填写清洗完成情况备注', '完成清洗', {
-    inputValue: '清洗完成，组件表面清洁度良好。', inputPattern: /\S+/, inputErrorMessage: '备注不能为空',
-  })
-  await http.post(`/cleanings/${row.id}/complete/`, { note: value })
-  ElMessage.success('清洗计划已完成')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('请填写清洗完成情况备注', '完成清洗', {
+      inputValue: '清洗完成，组件表面清洁度良好。', inputPattern: /\S+/, inputErrorMessage: '备注不能为空',
+    })
+    await http.post(`/cleanings/${row.id}/complete/`, { note: value })
+    ElMessage.success('清洗计划已完成')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 </script>
 

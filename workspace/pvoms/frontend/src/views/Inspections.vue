@@ -83,7 +83,11 @@ const filters = reactive({ station: null, status: null })
 const form = reactive({ station: null, title: '', order_type: 'regular', assignee: '', plan_date: null })
 
 onMounted(async () => {
-  stations.value = await http.get('/stations/')
+  try {
+    stations.value = await http.get('/stations/')
+  } catch {
+    /* 拦截器已统一提示 */
+  }
   await load()
 })
 
@@ -94,6 +98,8 @@ async function load() {
     if (filters.station) params.set('station', filters.station)
     if (filters.status) params.set('status', filters.status)
     rows.value = await http.get(`/inspections/?${params}`)
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
@@ -104,27 +110,39 @@ async function create() {
     ElMessage.warning('请填写完整信息')
     return
   }
-  const code = `XJ${form.plan_date.replaceAll('-', '')}-${String(Math.floor(Math.random() * 900) + 100)}`
-  await http.post('/inspections/', { ...form, code })
-  ElMessage.success('工单已创建')
-  dialog.value = false
-  Object.assign(form, { station: null, title: '', order_type: 'regular', assignee: '', plan_date: null })
-  load()
+  try {
+    const code = `XJ${form.plan_date.replaceAll('-', '')}-${String(Date.now()).slice(-6)}`
+    await http.post('/inspections/', { ...form, code })
+    ElMessage.success('工单已创建')
+    dialog.value = false
+    Object.assign(form, { station: null, title: '', order_type: 'regular', assignee: '', plan_date: null })
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  }
 }
 
 async function act(row, action) {
-  await http.post(`/inspections/${row.id}/${action}/`)
-  ElMessage.success('操作成功')
-  load()
+  try {
+    await http.post(`/inspections/${row.id}/${action}/`)
+    ElMessage.success('操作成功')
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  }
 }
 
 async function complete(row) {
-  const { value } = await ElMessageBox.prompt('请填写巡检结果', '完成工单', {
-    inputValue: '设备运行正常，未发现重大隐患。', inputPattern: /\S+/, inputErrorMessage: '结果不能为空',
-  })
-  await http.post(`/inspections/${row.id}/complete/`, { result: value })
-  ElMessage.success('工单已完成')
-  load()
+  try {
+    const { value } = await ElMessageBox.prompt('请填写巡检结果', '完成工单', {
+      inputValue: '设备运行正常，未发现重大隐患。', inputPattern: /\S+/, inputErrorMessage: '结果不能为空',
+    })
+    await http.post(`/inspections/${row.id}/complete/`, { result: value })
+    ElMessage.success('工单已完成')
+    load()
+  } catch {
+    /* 用户取消或请求失败（拦截器已提示） */
+  }
 }
 </script>
 

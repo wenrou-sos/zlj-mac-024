@@ -119,6 +119,8 @@ onMounted(async () => {
   try {
     data.value = await http.get('/overview/')
     renderCharts()
+  } catch {
+    /* 拦截器已统一提示 */
   } finally {
     loading.value = false
   }
